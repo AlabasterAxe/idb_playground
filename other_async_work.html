@@ -1,0 +1,68 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <script src="https://cdn.jsdelivr.net/npm/idb@7/build/umd.js"></script>
+    <script>
+
+        let numCommits = 10_000;
+
+        function doOtherAsyncThing() {
+            return setInterval(() => {
+                console.log('other async thing');
+            }, 10);
+        }
+
+        function setNumCommits() {
+            const el = document.getElementById('numCommits'); 
+            numCommits = parseInt(el.value);
+        }
+
+        async function openDb(dbName) {
+            const db = await idb.openDB(dbName, 1, {
+                upgrade(db) {
+                    db.createObjectStore('test-store');
+                }
+            });
+            return db;
+        }
+
+        async function outerTransaction() {
+            const db = await openDb('big-transaction');
+
+            const tx = db.transaction('test-store', 'readwrite');
+            const store = tx.objectStore('test-store');
+
+            try {
+                for (let i = 0; i < numCommits; i++) {
+                    await store.put({id: i, value: i}, i);
+                    console.log('put commit', i);
+                }
+            } catch (e) {
+                document.getElementById('subtransactionResult').textContent = e.message;
+            }
+
+            document.getElementById('subtransactionResult').textContent = "Success!";
+
+            await tx.done;
+
+            await db.close();
+            await idb.deleteDB('big-transaction');
+        }
+
+        async function startThings() {
+            const intervalThing = doOtherAsyncThing();
+            await outerTransaction();
+            clearInterval(intervalThing);
+        }
+
+    </script>
+</head>
+<body>
+    <button onclick="startThings()">Run Parallel Work</button>&nbsp;<span id="subtransactionResult"></span><br />
+</body>
+</html>

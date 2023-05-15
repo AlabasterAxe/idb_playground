@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+    <script src="https://cdn.jsdelivr.net/npm/idb@7/build/umd.js"></script>
+    <script>
+      let entityNum = 0;
+
+      let numCommits = 0;
+      let commitWriteTime = 0;
+      let numCommitWriteErrors = 0;
+
+      let numSnapshots = 0;
+      let snapshotWriteTime = 0;
+      let numSnapshotWriteErrors = 0;
+
+      let numCommitScans = 0;
+      let commitScanTime = 0;
+      let numCommitScanErrors = 0;
+
+      let largeObj;
+      let commitInterval;
+      let snapshotInterval;
+      let commitScanInterval;
+      let db;
+
+      function makeRandomString(length) {
+        let result = "";
+        const characters =
+          "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+        const charactersLength = characters.length;
+        let counter = 0;
+        while (counter < length) {
+          result += characters.charAt(
+            Math.floor(Math.random() * charactersLength)
+          );
+          counter += 1;
+        }
+        return result;
+      }
+
+      function generateLargeObject() {
+        const obj = {};
+        for (let i = 0; i < 1_000_000; i++) {
+          obj[makeRandomString(75)] = makeRandomString(75);
+        }
+        return obj;
+      }
+
+      function setNumCommits() {
+        const el = document.getElementById("numCommits");
+        numCommits = parseInt(el.value);
+      }
+
+      function startPeriodicSnapshotWrite(db) {
+        return setInterval(async () => {
+          if (!snapshotInterval) {
+            return;
+          }
+          console.log("[snapshots] starting snapshot");
+          try {
+            const start = performance.now();
+            let tx = db.transaction("test-snapshot-store", "readwrite");
+            let store = tx.objectStore("test-snapshot-store");
+            console.log("[snapshots] clearing snapshots");
+            await store.clear();
+            console.log("[snapshots] clearing snapshots done");
+
+            console.log(
+              "[snapshots] starting new transaction to create snapshot"
+            );
+            console.log("[snapshots] putting snapshot");
+            await store.put({ id: entityNum, value: largeObj }, entityNum);
+            entityNum++;
+            numSnapshots++
+            await tx.done;
+            console.log("[snapshots] put done");
+            snapshotWriteTime += performance.now() - start;
+            let el = document.getElementById("numSnapshots");
+            el.textContent = `Num Snapshots: ${numSnapshots}`;
+            el = document.getElementById("timePerSnapshot");
+            el.textContent = `Average Write Time: ${Math.round(snapshotWriteTime / numSnapshots)}`;
+          } catch (e) {
+            console.log("[snapshots] error", e.message);
+            numSnapshotWriteErrors++;
+            let el = document.getElementById("numSnapshotWriteErrors");
+            el.textContent = `Num Errors: ${numSnapshotWriteErrors}`;
+            el = document.getElementById("lastSnapshotWriteError");
+            el.textContent = `${e.name}: ${e.message}`;
+          }
+
+          console.log("[snapshots] tx done");
+        }, 15_000);
+      }
+
+      function startPeriodicCommitScan(db) {
+        return setInterval(async () => {
+          if (!commitScanInterval) {
+            return;
+          }
+          console.log("[commit-scan] starting snapshot");
+          try {
+            const start = performance.now();
+            const tx = db.transaction("test-store", "readonly");
+            let commitStore = tx.objectStore("test-store");
+            console.log(
+              "[commit-scan] starting new transaction to create snapshot"
+            );
+            let cursor = await commitStore.openCursor(undefined, 'next');
+            while (cursor) {
+              cursor = await cursor.continue();
+            }
+            numCommitScans++
+            await tx.done;
+            console.log("[commit-scan] done");
+            commitScanTime += performance.now() - start;
+            let el = document.getElementById("numCommitScans");
+            el.textContent = `Num Scans: ${numCommitScans}`;
+            el = document.getElementById("timePerCommitScan");
+            el.textContent = `Average Scan Time: ${Math.round(commitScanTime/ numCommitScans)}`;
+          } catch (e) {
+            console.log("[commit-scan] error", e.message);
+            numCommitScanErrors++;
+            let el = document.getElementById("numCommitScanErrors");
+            el.textContent = `Num Errors: ${numCommitScanErrors}`;
+            el = document.getElementById("lastCommitScanError");
+            el.textContent = `${e.name}: ${e.message}`;
+          }
+
+          console.log("[commit-scan] tx done");
+        }, 5_000);
+      }
+
+      function doSynchronousBlockingThing() {
+        return setTimeout(() => {
+          console.log("[synchronous] starting synchronous blocking work");
+
+          const start = performance.now();
+          let i = 0;
+          while (performance.now() - start < 70_000) {
+            i++;
+            // do nothing
+          }
+
+          console.log("[synchronous] blocking work done");
+        }, 100);
+      }
+
+      async function openDb(dbName) {
+        const db = await idb.openDB(dbName, 1, {
+          upgrade(db) {
+            db.createObjectStore("test-store");
+            db.createObjectStore("test-snapshot-store");
+          },
+        });
+        return db;
+      }
+
+      async function startPeriodicCommitWrite(db) {
+        return setInterval(async () => {
+          if (!commitInterval) {
+            return;
+          }
+          console.log("[commits] doing other idb thing");
+          try {
+            const start = performance.now();
+            const tx = db.transaction("test-store", "readwrite");
+            const store = tx.objectStore("test-store");
+            console.log("[commits] doing put");
+            for (let i = 0; i < 10; i++) {
+              await store.put({ id: entityNum, value: entityNum }, entityNum);
+              entityNum++;
+              numCommits++;
+            }
+            await tx.done;
+            console.log("[commits] put done");
+            commitWriteTime += performance.now() - start;
+            let el = document.getElementById("numCommits");
+            el.textContent = `Num Commits: ${numCommits}`;
+            el = document.getElementById("timePerCommit");
+            el.textContent = `Average write time: ${Math.round(commitWriteTime / numCommits)}`;
+          } catch (e) {
+            console.log("[commits] error", e.message);
+            numCommitWriteErrors++;
+            let el = document.getElementById("numCommitWriteErrors");
+            el.textContent = `Num Errors: ${numCommitWriteErrors}`;
+            el = document.getElementById("lastCommitWriteError");
+            el.textContent = `${e.name}: ${e.message}`;
+          }
+
+          console.log("[commits] tx done");
+        }, 100);
+      }
+
+      async function startThings() {
+        largeObj = generateLargeObject();
+        console.log(
+          "Large Object Size",
+          JSON.stringify(largeObj).length / 1024 / 1024,
+          "MB"
+        );
+        db = await openDb("large-objects");
+        db2 = await openDb("other-db");
+        commitInterval = startPeriodicCommitWrite(db);
+        snapshotInterval = startPeriodicSnapshotWrite(db);
+        commitScanInterval = startPeriodicCommitScan(db);
+      }
+
+      async function stopThings() {
+        clearInterval(commitInterval);
+        commitInterval = undefined;
+        clearInterval(snapshotInterval);
+        snapshotInterval = undefined;
+        clearInterval(commitScanInterval);
+        commitScanInterval = undefined;
+        await db.close();
+        await idb.deleteDB("large-objects");
+      }
+    </script>
+  </head>
+  <body>
+    <button onclick="startThings()">Start IDB Tasks</button>&nbsp;<br />
+    <button onclick="stopThings()">Stop IDB Tasks</button>
+    <div style="display: flex; flex-direction: column;">
+      <h2>Commit Info</h2>
+      <span id="numCommits">Num Commits: 0</span>
+      <span id="timePerCommit">Average write time: N/A</span>
+      <span id="numCommitWriteErrors">Num Errors: 0</span>
+      <span id="lastCommitWriteError"></span>
+    </div>
+    <div style="display: flex; flex-direction: column;">
+      <h2>Snapshot Info</h2>
+      <span id="numSnapshots">Num Snapshots: 0</span>
+      <span id="timePerSnapshot">Average write time: N/A</span>
+      <span id="numSnapshotWriteErrors">Num Errors: 0</span>
+      <span id="lastSnapshotWriteError"></span>
+    </div>
+    <div style="display: flex; flex-direction: column;">
+      <h2>Commit Scan Info</h2>
+      <span id="numCommitScans">Num Commit Scans: 0</span>
+      <span id="timePerCommitScan">Average scan time: N/A</span>
+      <span id="numCommitScanErrors">Num Errors: 0</span>
+      <span id="lastCommitScanError"></span>
+    </div>
+    <br />
+  </body>
+</html>

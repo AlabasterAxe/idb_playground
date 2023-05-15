@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+    <script>
+      "use strict";
+      function caller1(fn) {
+        console.log('caller1 this', this);
+        return () => {
+            console.log('caller1 anonymous function', this);
+            fn();
+        };
+      }
+      function caller2(fn) {
+        console.log('caller2 this', this);
+        function wrapped() {
+          console.log('caller2 named function', this);
+          return fn.apply(this);
+        }
+        return wrapped;
+      }
+
+      function caller3(fn) {
+        console.log('caller3 this', this);
+        function wrapped() {
+          console.log('caller3 named function', this);
+          return fn();
+        }
+        return wrapped;
+      }
+      class Foo {
+        constructor() {
+          this.foo = "bar";
+          this._caller1 = caller1(this.notBound);
+          this._caller2 = caller2(this.notBound);
+          this._caller3 = caller3(this.notBound);
+        }
+        notBound() {
+          console.log("not bound", this.foo);
+        }
+        thing1() {
+          this._caller1();
+        }
+        thing2() {
+          this._caller2();
+        }
+        thing3() {
+          this._caller3();
+        }
+      }
+      const blah = new Foo();
+    //   blah.thing3();
+      blah.thing2(); // succeeds
+      blah.thing1(); // fails
+    </script>
+  </head>
+  <body></body>
+</html>

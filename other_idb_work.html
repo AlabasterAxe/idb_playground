@@ -1,0 +1,80 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <script src="https://cdn.jsdelivr.net/npm/idb@7/build/umd.js"></script>
+    <script>
+
+        let numCommits = 10_000;
+
+        function doOtherIdbThing(db) {
+            return setTimeout(async () => {
+                console.log('[other] doing other idb thing');
+                const tx = db.transaction('test-store', 'readwrite');
+                const store = tx.objectStore('test-store');
+                console.log('[other] doing put');
+                await store.put({id: 100_001, value: 100_001}, 100_001);
+                console.log('[other] put done');
+                await tx.done;
+                console.log('[other] tx done');
+            }, 100);
+        }
+
+        function setNumCommits() {
+            const el = document.getElementById('numCommits'); 
+            numCommits = parseInt(el.value);
+        }
+
+        async function openDb(dbName) {
+            const db = await idb.openDB(dbName, 1, {
+                upgrade(db) {
+                    db.createObjectStore('test-store');
+                }
+            });
+            return db;
+        }
+
+        async function outerTransaction(db) {
+
+            const tx = db.transaction('test-store', 'readwrite');
+            const store = tx.objectStore('test-store');
+
+            console.log("[main] starting writes");
+            try {
+                for (let i = 0; i < numCommits; i++) {
+                    await store.put({id: i, value: i}, i);
+                }
+            } catch (e) {
+                document.getElementById('subtransactionResult').textContent = e.message;
+            }
+            console.log("[main] done writing");
+
+            document.getElementById('subtransactionResult').textContent = "Success!";
+
+            await tx.done;
+            console.log("[main] tx done");
+        }
+
+        async function startThings() {
+            const db = await openDb('big-transaction');
+            const intervalThing = doOtherIdbThing(db);
+            try {
+                await outerTransaction(db);
+            } catch (e) {
+                console.log("outer transaction error", e.message);
+            }
+            clearTimeout(intervalThing);
+            await db.close();
+            await idb.deleteDB('big-transaction');
+        }
+
+    </script>
+</head>
+<body>
+    <button onclick="startThings()">Run Parallel Idb Work</button>&nbsp;<span id="subtransactionResult"></span><br />
+</body>
+</html>
