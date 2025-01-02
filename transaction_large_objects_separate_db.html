@@ -22,6 +22,7 @@
       let numCommitScanErrors = 0;
 
       let largeObj;
+      let mediumObj;
       let commitInterval;
       let snapshotInterval;
       let commitScanInterval;
@@ -42,7 +43,7 @@
         return result;
       }
 
-      function generateLargeObject() {
+      function generateObject(num) {
         const obj = {};
         for (let i = 0; i < 1_000_000; i++) {
           obj[makeRandomString(75)] = makeRandomString(75);
@@ -134,6 +135,44 @@
         }, 5_000);
       }
 
+      function startWriteMediumObjectsRegularly(db) {
+        return setInterval(async () => {
+          if (!commitScanInterval) {
+            return;
+          }
+          console.log("[other-db] starting other work");
+          try {
+            const start = performance.now();
+            const tx = db.transaction("test-snapshot-store", "readonly");
+            let snapshotStore = tx.objectStore("test-snapshot-store");
+            console.log(
+              "[other-db] starting new transaction to create snapshot"
+            );
+            let cursor = await snapshotStore.openCursor(undefined, 'next');
+            while (cursor) {
+              cursor = await cursor.continue();
+            }
+            numCommitScans++
+            await tx.done;
+            console.log("[other-db] done");
+            commitScanTime += performance.now() - start;
+            let el = document.getElementById("numCommitScans");
+            el.textContent = `Num Scans: ${numCommitScans}`;
+            el = document.getElementById("timePerCommitScan");
+            el.textContent = `Average Scan Time: ${Math.round(commitScanTime/ numCommitScans)}`;
+          } catch (e) {
+            console.log("[other-db] error", e.message);
+            numCommitScanErrors++;
+            let el = document.getElementById("numCommitScanErrors");
+            el.textContent = `Num Errors: ${numCommitScanErrors}`;
+            el = document.getElementById("lastCommitScanError");
+            el.textContent = `${e.name}: ${e.message}`;
+          }
+
+          console.log("[other-db] tx done");
+        }, 10_000);
+      }
+
       function doSynchronousBlockingThing() {
         return setTimeout(() => {
           console.log("[synchronous] starting synchronous blocking work");
@@ -196,7 +235,8 @@
       }
 
       async function startThings() {
-        largeObj = generateLargeObject();
+        largeObj = generateObject(1_000_000);
+        mediumObj = generateObject(10_000);
         console.log(
           "Large Object Size",
           JSON.stringify(largeObj).length / 1024 / 1024,
@@ -218,6 +258,8 @@
         commitScanInterval = undefined;
         await db.close();
         await idb.deleteDB("large-objects");
+        await db2.close();
+        await idb.deleteDB("other-db");
       }
     </script>
   </head>
